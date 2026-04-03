@@ -134,7 +134,6 @@ function sendRegistrationStep(chatId) {
 
   const step1Path = path.join(__dirname, "step1.png");
   const step2Path = path.join(__dirname, "step2.jpg");
-
   const media = [];
 
   if (fs.existsSync(step1Path)) {
@@ -155,9 +154,7 @@ function sendRegistrationStep(chatId) {
 
   if (media.length > 0) {
     bot.sendMediaGroup(chatId, media)
-      .then(() => {
-        bot.sendMessage(chatId, t.afterSubscriptionHint);
-      })
+      .then(() => bot.sendMessage(chatId, t.afterSubscriptionHint))
       .catch((err) => {
         console.error("sendMediaGroup error:", err.message);
         bot.sendMessage(chatId, t.afterSubscriptionHint);
@@ -196,7 +193,6 @@ function sendReject(chatId) {
 
 bot.onText(/\/start/, (msg) => {
   const chatId = msg.chat.id;
-
   userState[chatId] = undefined;
   sendLanguageSelector(chatId);
 });
@@ -205,24 +201,24 @@ bot.on("callback_query", async (q) => {
   const chatId = q.message.chat.id;
   const data = q.data;
 
-  if (data === "lang_ru") {
-    userLang[chatId] = "ru";
-    sendSubscriptionMessage(chatId);
-  }
+  try {
+    if (data === "lang_ru") {
+      userLang[chatId] = "ru";
+      sendSubscriptionMessage(chatId);
+    }
 
-  if (data === "lang_en") {
-    userLang[chatId] = "en";
-    sendSubscriptionMessage(chatId);
-  }
+    if (data === "lang_en") {
+      userLang[chatId] = "en";
+      sendSubscriptionMessage(chatId);
+    }
 
-  if (data === "change_lang") {
-    delete userLang[chatId];
-    userState[chatId] = undefined;
-    sendLanguageSelector(chatId);
-  }
+    if (data === "change_lang") {
+      delete userLang[chatId];
+      userState[chatId] = undefined;
+      sendLanguageSelector(chatId);
+    }
 
-  if (data === "check_sub") {
-    try {
+    if (data === "check_sub") {
       const member = await bot.getChatMember(process.env.CHANNEL_USERNAME, chatId);
 
       if (["member", "administrator", "creator"].includes(member.status)) {
@@ -232,15 +228,15 @@ bot.on("callback_query", async (q) => {
         const t = getTexts(lang);
         bot.sendMessage(chatId, t.subscriptionFail);
       }
-    } catch (error) {
-      console.error("Subscription check error:", error.message);
-      const lang = userLang[chatId] || "ru";
-      const t = getTexts(lang);
-      bot.sendMessage(chatId, t.subscriptionError);
     }
-  }
 
-  bot.answerCallbackQuery(q.id).catch(() => {});
+    await bot.answerCallbackQuery(q.id);
+  } catch (error) {
+    console.error("callback_query error:", error.message);
+    try {
+      await bot.answerCallbackQuery(q.id);
+    } catch {}
+  }
 });
 
 bot.on("message", (msg) => {
