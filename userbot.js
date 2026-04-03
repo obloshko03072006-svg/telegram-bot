@@ -10,9 +10,8 @@ const {
 const apiId = Number(process.env.TG_API_ID);
 const apiHash = process.env.TG_API_HASH;
 const session = new StringSession(process.env.TG_SESSION || "");
-const affiliateBot = process.env.AFFILIATE_BOT_USERNAME || "AffiliatePocketBot";
+const affiliateBot = process.env.AFFILIATE_BOT_USERNAME || "PocketOptionOfficialBot";
 
-const MAX_ATTEMPTS = 4;
 const CHECK_INTERVAL_MS = 15000;
 const WAIT_REPLY_MS = 3500;
 const BETWEEN_REQUESTS_MS = 4000;
@@ -20,55 +19,57 @@ const BETWEEN_REQUESTS_MS = 4000;
 let client;
 
 function parseResponse(text) {
-  if (!text) {
+  const raw = text || "";
+
+  if (/user not found/i.test(raw) || /пользователь не найден/i.test(raw)) {
     return {
       ok: false,
+      notFound: true,
       uid: null,
       linkType: "",
-      raw: text || "",
+      raw,
     };
   }
 
   const uidMatch =
-    text.match(/UID:\s*(\d+)/i) ||
-    text.match(/Уникальный идентификатор\s*\(UID\):\s*(\d+)/i);
+    raw.match(/UID:\s*(\d+)/i) ||
+    raw.match(/Уникальный идентификатор\s*\(UID\):\s*(\d+)/i);
 
   const linkTypeMatch =
-    text.match(/Link type:\s*(.+)/i) ||
-    text.match(/Тип ссылки:\s*(.+)/i);
+    raw.match(/Link type:\s*(.+)/i) ||
+    raw.match(/Тип ссылки:\s*(.+)/i);
 
   return {
     ok: Boolean(uidMatch),
+    notFound: false,
     uid: uidMatch ? uidMatch[1].trim() : null,
     linkType: linkTypeMatch ? linkTypeMatch[1].trim() : "",
-    raw: text,
+    raw,
   };
 }
 
-async function findReplyByUid(uid) {
+async function findLatestRelevantReply() {
   const messages = await client.getMessages(affiliateBot, { limit: 10 });
 
   return messages.find((m) => {
-    const text = m.message || "";
+    const text = (m.message || "").toLowerCase();
     return (
-      text.includes(`UID: ${uid}`) ||
-      text.includes(`UID:${uid}`) ||
-      text.includes(`Уникальный идентификатор (UID): ${uid}`)
+      text.includes("uid:") ||
+      text.includes("уникальный идентификатор") ||
+      text.includes("user not found") ||
+      text.includes("пользователь не найден")
     );
   });
 }
 
 async function checkRequest(req) {
   try {
-    const attempts = (req.attempts || 0) + 1;
-
     updateRequest(req.telegram_id, {
       status: "checking",
-      attempts,
       last_check_at: new Date().toISOString(),
     });
 
-    console.log(`Checking UID ${req.uid}, attempt ${attempts}/${MAX_ATTEMPTS}`);
+    console.log(`[CHECK] UID ${req.uid}`);
 
     await client.sendMessage(affiliateBot, {
       message: `/user ${req.uid}`,
@@ -76,61 +77,68 @@ async function checkRequest(req) {
 
     await new Promise((resolve) => setTimeout(resolve, WAIT_REPLY_MS));
 
-    const reply = await findReplyByUid(req.uid);
+    const reply = await findLatestRelevantReply();
 
     if (!reply || !reply.message) {
-      if (attempts >= MAX_ATTEMPTS) {
-        updateRequestStatus(req.telegram_id, "rejected", {
-          affiliate_raw: "No valid reply found after several attempts",
-        });
-        console.log(`Rejected UID ${req.uid}: no reply`);
-      } else {
-        updateRequest(req.telegram_id, { status: "pending" });
-        console.log(`No reply yet for UID ${req.uid}, back to pending`);
-      }
+      updateRequestStatus(req.telegram_id, "rejected", {
+        affiliate_raw: "No valid reply from affiliate bot",
+      });
+      console.log(`[REJECT] UID ${req.uid}: no reply`);
       return;
     }
+
+    console.log(`[RAW REPLY] ${reply.message}`);
 
     const parsed = parseResponse(reply.message);
 
-    if (!parsed.ok || parsed.uid !== req.uid) {
-      if (attempts >= MAX_ATTEMPTS) {
-        updateRequestStatus(req.telegram_id, "rejected", {
-          affiliate_raw: reply.message,
-        });
-        console.log(`Rejected UID ${req.uid}: reply parse failed`);
-      } else {
-        updateRequest(req.telegram_id, { status: "pending" });
-        console.log(`Reply parse failed for UID ${req.uid}, back to pending`);
-      }
+    if (parsed.notFound) {
+      updateRequestStatus(req.telegram_id, "rejected", {
+        affiliate_raw: parsed.raw,
+      });
+      console.log(`[REJECT] UID ${req.uid}: user not found`);
       return;
     }
 
-    const linkType = parsed.linkType.toLowerCase();
+    if (!parsed.ok || parsed.uid !== req.uid) {
+      updateRequestStatus(req.telegram_id, "rejected", {
+        affiliate_raw: parsed.raw,
+      });
+      console.log(`[REJECT] UID ${req.uid}: parse failed`);
+      return;
+    }
+
+    const linkType = (parsed.linkType || "").toLowerCase();
 
     if (linkType.includes("registration") || linkType.includes("регистрац")) {
       updateRequestStatus(req.telegram_id, "approved", {
         affiliate_raw: parsed.raw,
         verified_uid: parsed.uid,
       });
-      console.log(`Approved UID ${req.uid}`);
+      console.log(`[APPROVED] UID ${req.uid}`);
     } else {
       updateRequestStatus(req.telegram_id, "rejected", {
         affiliate_raw: parsed.raw,
         verified_uid: parsed.uid,
       });
-      console.log(`Rejected UID ${req.uid}: wrong link type "${parsed.linkType}"`);
+      console.log(`[REJECT] UID ${req.uid}: wrong link type "${parsed.linkType}"`);
     }
   } catch (error) {
-    console.log(`check error for UID ${req.uid}:`, error.message);
-    updateRequest(req.telegram_id, { status: "pending" });
+    console.log(`[ERROR] UID ${req.uid}: ${error.message}`);
+    updateRequestStatus(req.telegram_id, "rejected", {
+      affiliate_raw: error.message,
+    });
   }
 }
 
 async function loop() {
   const pending = getPendingRequests();
 
-  if (!pending.length) return;
+  if (!pending.length) {
+    console.log("[LOOP] No pending requests");
+    return;
+  }
+
+  console.log(`[LOOP] Pending requests: ${pending.length}`);
 
   for (const req of pending) {
     await checkRequest(req);
@@ -150,4 +158,6 @@ async function main() {
   setInterval(loop, CHECK_INTERVAL_MS);
 }
 
-main().catch(console.error);
+main().catch((err) => {
+  console.error("Userbot fatal error:", err);
+});
