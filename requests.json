@@ -1,0 +1,19 @@
+{
+  "requests": [
+    {
+      "telegram_id": 1100942826,
+      "username": "iluhamster",
+      "uid": "128310207",
+      "lang": "ru",
+      "status": "approved",
+      "access_sent": true,
+      "reject_sent": false,
+      "created_at": "2026-04-01T13:45:18.088Z",
+      "updated_at": "2026-04-03T12:09:31.718Z",
+      "attempts": 2,
+      "affiliate_raw": "UID: 128310207\nReg date: 2026-03-30\nActivity date: \nCountry: Belarus\nVerified: No\nBalance: $0.00\nFTD amount: $0.00\nFTD date: \nCount of deposits: 0\nSum of deposits: $0.00\nSum of bonuses: $0.00\nCount of bonuses: 0\nSelf excluded: No\n--------------------------\nLink type: Registration\nLink: https://u3.shortink.io/register?utm_campaign=839812&utm_source=affiliate&utm_medium=sr&a=ht9LEhjWXLwJo3&al=1744479&ac=pocketinvestor&cid=949104&code=GVW294",
+      "verified_uid": "128310207",
+      "last_check_at": "2026-04-03T12:09:23.157Z"
+    }
+  ]
+}
